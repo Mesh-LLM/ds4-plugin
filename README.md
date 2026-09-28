@@ -1,6 +1,9 @@
 # ds4 — managed DwarfStar plugin for Mesh
 
-**Apple Silicon trial; not production-certified.** Standalone native plugin
+**Early access for Apple Silicon; not production-certified.**
+
+Download the [precompiled early-access archive (trial.2)](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.2).
+Use Mesh v0.77.0. The archive includes the runtime, not weights. Standalone native plugin
 following [Flash-MoE](https://github.com/Mesh-LLM/flash-moe). No engine fork,
 Skippy change, or inference-over-plugin-IPC path.
 
@@ -77,20 +80,17 @@ Bundled upstream runtime: `0aaea5a238fb41a35106a551e73c8409dfb751ac`, built
 without host-native CPU tuning. `RUNTIME.sha256` inventories runtime assets;
 the archive has a checksum sidecar. Engine MIT licence is included separately.
 
-## Before release
+## Early-access scope
 
-1. Document upstream discovery aliases: Flash and PRO name the same loaded
-   checkpoint. Select `deepseek-v4-flash` for the tested Flash Q2 configuration.
-   Alias filtering is not required for this plugin release.
-2. Complete startup handshake/readiness integration, graceful SIGTERM and
-   shutdown coverage, collision handling and lifecycle tests against fake IPC/HTTP.
-3. Automate release publication and verified download/install/rollback of the
-   composed archive. Never download/execute mutable unverified runtime scripts.
-4. Add disk/RAM preflight, cancellation recovery, and download fault-injection
-   tests. No automatic unloading of other workloads.
-5. Verify direct/local-Mesh/remote-private-Mesh streaming and real agent tool
-   loops, backend death/withdrawal, cancellation and context limits. Only then
-   publish native plugin archives and add the catalog entry.
+Available now: bundled Apple Silicon runtime, explicit resumable Flash Q2 download,
+managed serving, normal Mesh API discovery/chat/streaming/tools, and owned-process
+cleanup. Flash/PRO are upstream aliases for the same loaded checkpoint.
+
+Not yet qualified: other models/platforms, request-triggered loading, concurrent
+agent workloads or a model-picker UI. Download cancellation retains partial data;
+a hard interruption may require the documented stale-lock cleanup. Check available
+disk/RAM yourself before downloading/starting; automatic resource preflight is not
+implemented. These limitations do not require changes to Mesh routing.
 
 Engine licence and model licence are separate. Model source:
 https://huggingface.co/antirez/deepseek-v4-gguf/tree/f71f23d552d664e523b422157b2befbf74040380
@@ -165,6 +165,10 @@ It is a scripted contract test, not a full coding-agent qualification.
 
 Record plugin commit, Mesh version, runtime revision, weight identity and context
 with real results. Run against direct ds4 and local Mesh URLs to distinguish
-backend failures from host integration failures. A released-host mock-backend
-launcher, download fault injection and broader failure/recovery acceptance are
-still outstanding; the probe is not evidence those have run.
+backend failures from host integration failures. CI also installs the plugin into a checksum-pinned released Mesh v0.77.0 host
+with a fake backend and executes this API probe, including shutdown cleanup.
+Run that same integration locally with `python3 scripts/mesh_smoke.py --mesh
+/path/to/mesh-llm --plugin target/debug/ds4` after `just build`.
+See `ci/README.md` for the trust/dependency contract. This is real host integration
+with synthetic responses, not real-model qualification. Download fault injection
+and broader failure/recovery acceptance remain follow-up coverage.
