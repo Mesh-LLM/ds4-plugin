@@ -28,7 +28,7 @@ another large resident model. No automatic unloading or model download occurs.
 
 ## Run through Mesh
 
-With a compatible Mesh installation, install the same archive:
+With Mesh v0.77.0 (plugin protocol 3), install the trial.2 archive:
 
 ```sh
 mesh-llm plugins install --archive ./ds4-v0.1.0-aarch64-apple-darwin.tar.gz --name ds4 --version 0.1.0
@@ -46,11 +46,18 @@ args = ["serve", "--weights", "/absolute/models/model.gguf", "--context", "4096"
 ```
 
 The plugin finds its adjacent runtime automatically; `--runtime` can override it.
-SDK pinned at `2c1498194cd7e965c04be9390bfdcd2b5d109da6` (0.76.0-rc7).
-**Full Mesh installer/routing qualification remains pending.** The direct trial
-has passed chat, a two-turn tool-call replay, SSE framing/termination and shutdown.
-An automated fake-backend test verifies real plugin IPC initialization and owned
-child cleanup on host disconnect while leaving an unrelated process alive.
+SDK pinned at `4ae1ace57dbbe28d0c3d10a05ee542328e8e64e7` (v0.77.0).
+Trial.2 passed real archive installation into released Mesh v0.77.0, model
+discovery, chat, a two-turn tool-call replay, streaming content/SSE termination,
+and host shutdown with no surviving owned processes. Private remote routing
+and full agent-harness qualification remain pending. Trial.1 used protocol 2
+and is incompatible with this host; use trial.2 instead.
+
+Initialization rejects incompatible hosts before starting a model. A separate
+Unix watchdog reaps the native backend even when Mesh force-kills the plugin.
+Automated tests cover incompatible initialization, host disconnect and plugin
+SIGKILL while leaving unrelated processes alive. This trial targets Apple
+Silicon/macOS; Windows supervision is not implemented.
 
 **Known discovery limitation:** upstream lists Flash and PRO as compatibility
 aliases for one loaded V4 checkpoint. Use Flash explicitly; do not interpret the

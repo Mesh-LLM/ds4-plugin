@@ -8,8 +8,9 @@ repository = "https://github.com/Mesh-LLM/ds4-plugin"
 
 [dependencies]
 anyhow = "1"
+libc = "0.2"
 clap = { version = "4", features = ["derive"] }
-mesh-llm-plugin = { git = "https://github.com/Mesh-LLM/mesh-llm.git", rev = "2c1498194cd7e965c04be9390bfdcd2b5d109da6" }
+mesh-llm-plugin = { git = "https://github.com/Mesh-LLM/mesh-llm.git", rev = "4ae1ace57dbbe28d0c3d10a05ee542328e8e64e7" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde_json = "1"
 sha2 = "0.10"

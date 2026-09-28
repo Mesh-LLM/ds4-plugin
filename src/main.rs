@@ -14,6 +14,14 @@ struct Args {
 
 #[derive(Subcommand)]
 enum Commands {
+    #[command(hide = true)]
+    WatchBackend {
+        runtime: PathBuf,
+        weights: PathBuf,
+        context: u32,
+        port: u16,
+        parent: u32,
+    },
     /// Show the initial pinned model catalog; does not download anything.
     Catalog,
     /// Download and verify weights. Never starts inference.
@@ -42,6 +50,13 @@ enum Commands {
 #[tokio::main]
 async fn main() -> Result<()> {
     match Args::parse().command {
+        Commands::WatchBackend {
+            runtime,
+            weights,
+            context,
+            port,
+            parent,
+        } => serving::watch_backend(runtime, weights, context, port, parent).await,
         Commands::Catalog => {
             println!(
                 "ds4f-q2: DeepSeek V4 Flash Q2; {} bytes (~81 GiB).\nAllow additional RAM for context/runtime; resident use targets 96+ GB machines.\nReview model licence: https://huggingface.co/antirez/deepseek-v4-gguf",

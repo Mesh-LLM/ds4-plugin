@@ -72,9 +72,43 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: b
     let port = listener.local_addr()?.port();
     drop(listener);
     let url = format!("http://127.0.0.1:{port}/v1");
-    let mut child = Command::new(executable)
-        .args(arguments(&weights, context, port))
-        .current_dir(runtime)
+    // Do not allocate a model process until a compatible host has initialized us.
+    let initialized = std::sync::Arc::new(tokio::sync::Notify::new());
+    let ready = initialized.clone();
+    let plugin = plugin(url.clone())
+        .on_initialize(|request, _| {
+            Box::pin(async move {
+                if request.host_protocol_version != mesh_llm_plugin::PROTOCOL_VERSION {
+                    return Err(mesh_llm_plugin::PluginError::internal(format!(
+                        "incompatible Mesh plugin protocol: host={}, plugin={}",
+                        request.host_protocol_version,
+                        mesh_llm_plugin::PROTOCOL_VERSION
+                    )));
+                }
+                Ok(())
+            })
+        })
+        .on_initialized(move |_| {
+            ready.notify_one();
+            Box::pin(async { Ok(()) })
+        });
+    let connection = PluginRuntime::run(plugin);
+    tokio::pin!(connection);
+    if !standalone {
+        tokio::select! {
+            result = &mut connection => return result,
+            _ = initialized.notified() => {},
+            _ = shutdown_signal() => return Ok(()),
+            _ = tokio::time::sleep(Duration::from_secs(15)) => bail!("Mesh initialization timed out; no server started"),
+        }
+    }
+    let mut child = Command::new(std::env::current_exe()?)
+        .arg("watch-backend")
+        .arg(&runtime)
+        .arg(&weights)
+        .arg(context.to_string())
+        .arg(port.to_string())
+        .arg(std::process::id().to_string())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::inherit())
@@ -92,26 +126,66 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: b
             _ = shutdown_signal() => Ok(()),
         }
     } else {
-        supervise(&mut child, url).await
+        tokio::select! {
+            result = &mut connection => result,
+            result = async {
+                wait_ready(&mut child, &url).await?;
+                bail!("owned ds4-server exited: {}", child.wait().await?)
+            } => result,
+            _ = shutdown_signal() => Ok(()),
+        }
     };
     // Only the Child handle we created is ever terminated. No process-name matching.
     if child.try_wait()?.is_none() {
-        child.kill().await?;
+        if let Some(pid) = child.id() {
+            // SAFETY: signaling only the supervisor child we own.
+            unsafe {
+                libc::kill(pid as i32, libc::SIGTERM);
+            }
+        }
+        child.wait().await?;
     }
     result
 }
 
-async fn supervise(child: &mut Child, url: String) -> Result<()> {
-    // Connect promptly: model loading must not consume the host's IPC handshake deadline.
-    // Host endpoint probing keeps an unready backend out of routing.
-    tokio::select! {
-        result = PluginRuntime::run(plugin(url.clone())) => result,
-        result = async {
-            wait_ready(child, &url).await?;
-            bail!("owned ds4-server exited: {}", child.wait().await?)
-        } => result,
+/// A separate supervisor survives a host SIGKILL of the plugin and reaps its backend.
+/// Parent identity is checked through the OS parent relationship, not PID-name matching.
+pub async fn watch_backend(
+    runtime: PathBuf,
+    weights: PathBuf,
+    context: u32,
+    port: u16,
+    parent: u32,
+) -> Result<()> {
+    #[cfg(unix)]
+    let parent_alive = || {
+        // SAFETY: getppid has no arguments or memory preconditions.
+        unsafe { libc::getppid() as u32 == parent }
+    };
+    #[cfg(not(unix))]
+    compile_error!("The trial backend watchdog currently requires Unix");
+    ensure!(parent_alive(), "plugin already exited; no backend started");
+    let mut child = Command::new(runtime.join("ds4-server"))
+        .args(arguments(&weights, context, port))
+        .current_dir(runtime)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()?;
+    let result = tokio::select! {
+        status = child.wait() => { bail!("ds4-server exited: {}", status?) },
+        _ = async {
+            while parent_alive() {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
+        } => Ok(()),
         _ = shutdown_signal() => Ok(()),
+    };
+    if child.try_wait()?.is_none() {
+        child.kill().await?;
     }
+    result
 }
 
 async fn shutdown_signal() {
