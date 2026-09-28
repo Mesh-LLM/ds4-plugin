@@ -103,3 +103,68 @@ inference server. SDK is pinned to a commit, Cargo dependencies to Cargo.lock.
 
 Maintainers: `just package-macos /path/to/clean/pinned/ds4` builds the composed
 trial archive and cleans upstream build outputs. Users do not run this step.
+
+## Who builds, chooses and starts what?
+
+Maintainers compile the Rust plugin and antirez/ds4's native server from the
+pinned source checkout using `just package-macos`. The archive includes Metal
+assets and the engine licence. Users do not compile either program. The engine
+is a separately packaged executable, not a Mesh source dependency or engine fork.
+
+The user chooses weights, not Mesh. `catalog` currently offers **only Flash Q2**;
+that downloadable catalog is not the same as Mesh's list of ready models.
+Use the `./ds4/ds4` executable from the extracted archive for catalog/download
+commands; it need not be on PATH. Installing the archive does not install weights.
+Downloading weights does not start a server. Configuring `serve --weights` and
+launching Mesh does start the backend, after plugin initialization. The host's
+`on_demand` mode does **not** make this plugin's model load request-triggered.
+The current CLI implements managed serving and standalone serving, not an attach
+subcommand or a model-picker UI. Do not treat an arbitrary upstream-supported
+GGUF as a tested plugin configuration.
+
+Once ready, use the ordinary Mesh OpenAI-compatible API (default port shown):
+
+```sh
+curl http://127.0.0.1:9337/v1/models
+curl http://127.0.0.1:9337/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Hello"}]}'
+```
+
+There is no special ds4 inference API exposed by the plugin. Plugin IPC is control
+only; Mesh sends inference to the native HTTP backend. Until the alias limitation
+above is fixed, explicitly select Flash rather than treating PRO as available.
+
+To stop, shut down the Mesh instance you launched (Ctrl+C in its terminal).
+Remove its `[[plugin]]` entry before the next launch if you no longer want the
+backend started. Keep weights outside the installed plugin directory: removing
+plugin files must not remove your model collection. Never stop other instances
+by matching process names.
+
+## Repeatable acceptance owned by this repository
+
+`just verify` runs the full Rust package suite and model-free Python tests of the
+API probe. Fake processes test owned-child cleanup; fake HTTP responses test
+chat/tool-history replay, SSE termination and rejection of false discovery aliases.
+These tests do not prove a real host/runtime integration or model quality.
+
+Explicitly start your isolated test instance with existing weights, then run:
+
+```sh
+just acceptance http://127.0.0.1:19447/v1
+# Release gate on a host dedicated to this single model:
+python3 scripts/acceptance.py --base-url http://127.0.0.1:19447/v1 --strict-discovery
+```
+
+The probe performs real inference but never starts/stops services, downloads
+weights or changes configuration. It checks model presence, chat content, forced
+tool-call arguments/IDs/finish reason, full assistant-history replay and streamed
+content/finish/termination. The strict gate currently fails against the known
+Flash/PRO alias response: do not waive that failure as a supported-release pass.
+It is a scripted contract test, not a full coding-agent qualification.
+
+Record plugin commit, Mesh version, runtime revision, weight identity and context
+with real results. Run against direct ds4 and local Mesh URLs to distinguish
+backend failures from host integration failures. A released-host mock-backend
+launcher, download fault injection and broader failure/recovery acceptance are
+still outstanding; the probe is not evidence those have run.
