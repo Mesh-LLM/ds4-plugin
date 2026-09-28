@@ -9,3 +9,7 @@ verify:
 
 clean:
     cargo clean
+
+# Build one self-contained trial plugin, including pinned DwarfStar and Metal assets.
+package-macos source:
+    bash scripts/package-macos.sh '{{source}}'

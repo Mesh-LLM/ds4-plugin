@@ -28,9 +28,12 @@ enum Commands {
     /// Run as a Mesh plugin using an already provisioned runtime and weights.
     Serve {
         #[arg(long)]
-        runtime: PathBuf,
+        runtime: Option<PathBuf>,
         #[arg(long)]
         weights: PathBuf,
+        /// Run a direct loopback trial without Mesh (HTTP port printed on stderr).
+        #[arg(long)]
+        standalone: bool,
         #[arg(long, default_value_t = 4096, value_parser = clap::value_parser!(u32).range(512..=32768))]
         context: u32,
     },
@@ -55,7 +58,16 @@ async fn main() -> Result<()> {
             runtime,
             weights,
             context,
-        } => serving::run(runtime, weights, context).await,
+            standalone,
+        } => {
+            let runtime = runtime.unwrap_or(
+                std::env::current_exe()?
+                    .parent()
+                    .expect("executable parent")
+                    .join("runtime"),
+            );
+            serving::run(runtime, weights, context, standalone).await
+        }
     }
 }
 

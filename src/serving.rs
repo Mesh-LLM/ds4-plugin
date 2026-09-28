@@ -51,9 +51,9 @@ fn plugin(url: String) -> mesh_llm_plugin::SimplePlugin {
     }
 }
 
-pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32) -> Result<()> {
+pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: bool) -> Result<()> {
     ensure!(
-        std::env::var_os("MESH_LLM_PLUGIN_ENDPOINT").is_some(),
+        standalone || std::env::var_os("MESH_LLM_PLUGIN_ENDPOINT").is_some(),
         "serve must be launched by Mesh as a plugin; no server started"
     );
     let runtime = runtime
@@ -81,7 +81,19 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32) -> Result<()>
         .kill_on_drop(true)
         .spawn()
         .context("start owned ds4-server")?;
-    let result = supervise(&mut child, url).await;
+    eprintln!("Starting DwarfStar at {url}; one session, context={context}");
+    let result = if standalone {
+        tokio::select! {
+            result = async {
+                wait_ready(&mut child, &url).await?;
+                eprintln!("Ready: {url} (upstream Flash/PRO IDs are aliases, not two loaded models)");
+                bail!("ds4-server exited: {}", child.wait().await?)
+            } => result,
+            _ = shutdown_signal() => Ok(()),
+        }
+    } else {
+        supervise(&mut child, url).await
+    };
     // Only the Child handle we created is ever terminated. No process-name matching.
     if child.try_wait()?.is_none() {
         child.kill().await?;

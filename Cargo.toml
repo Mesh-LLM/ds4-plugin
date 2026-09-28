@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 license = "Apache-2.0"
 description = "Managed DwarfStar inference plugin for Mesh LLM"
-repository = "https://github.com/Mesh-LLM/ds4"
+repository = "https://github.com/Mesh-LLM/ds4-plugin"
 
 [dependencies]
 anyhow = "1"
