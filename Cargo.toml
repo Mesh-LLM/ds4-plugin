@@ -1,0 +1,19 @@
+[package]
+name = "ds4"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Managed DwarfStar inference plugin for Mesh LLM"
+repository = "https://github.com/Mesh-LLM/ds4"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+mesh-llm-plugin = { git = "https://github.com/Mesh-LLM/mesh-llm.git", rev = "2c1498194cd7e965c04be9390bfdcd2b5d109da6" }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde_json = "1"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"

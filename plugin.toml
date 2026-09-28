@@ -1,0 +1,4 @@
+name = "ds4"
+version = "0.1.0"
+description = "Manage a local DwarfStar inference server."
+command = "ds4"
