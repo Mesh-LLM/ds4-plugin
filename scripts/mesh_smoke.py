@@ -57,7 +57,7 @@ def main():
                    XDG_CACHE_HOME=str(home / '.cache'), PYTHONDONTWRITEBYTECODE='1',
                    MESH_LLM_OWNER_PASSPHRASE='isolated-test-only')
         subprocess.run([str(mesh), '--log-format', 'json', 'plugins', 'install',
-                        '--archive', str(archive), '--name', 'ds4-plugin', '--version', '0.1.0'],
+                        '--archive', str(archive), '--name', 'ds4-plugin', '--version', '0.2.0'],
                        env=env, check=True, timeout=60)
         config = home / '.mesh-llm' / 'config.toml'
         config.parent.mkdir(exist_ok=True)
