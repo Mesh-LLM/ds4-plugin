@@ -55,3 +55,5 @@ probes an already running instance. Maintainers package with
 `just package-macos /path/to/clean/pinned/ds4` (upstream revision
 `0aaea5a238fb41a35106a551e73c8409dfb751ac`); the archive includes `ds4-server`,
 Metal assets, upstream `download_model.sh` and its licence.
+
+Releases: see [RELEASING.md](RELEASING.md).
