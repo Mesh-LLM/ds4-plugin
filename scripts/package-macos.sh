@@ -18,13 +18,16 @@ mkdir -p "$stage/ds4/runtime"
 cp target/release/ds4 plugin.toml README.md LICENSE "$stage/ds4/"
 cp "$source_dir/ds4-server" "$stage/ds4/runtime/"
 cp -R "$source_dir/metal" "$stage/ds4/runtime/"
+# Upstream downloader: plugin `serve --model NAME` runs it; no bespoke catalog.
+cp "$source_dir/download_model.sh" "$stage/ds4/runtime/"
 cp "$source_dir/LICENSE" "$stage/ds4/runtime/LICENSE"
 printf '%s\n' "$revision" > "$stage/ds4/runtime/UPSTREAM_REVISION"
 codesign --force --sign - "$stage/ds4/ds4"
 codesign --force --sign - "$stage/ds4/runtime/ds4-server"
 codesign --verify --strict "$stage/ds4/ds4"
 codesign --verify --strict "$stage/ds4/runtime/ds4-server"
-"$stage/ds4/ds4" catalog
+"$stage/ds4/ds4" serve --help >/dev/null
+sh "$stage/ds4/runtime/download_model.sh" --help >/dev/null
 "$stage/ds4/runtime/ds4-server" --help >/dev/null
 (cd "$stage/ds4" && find runtime -type f -exec shasum -a 256 {} \; > RUNTIME.sha256)
 archive="$root/dist/ds4-v0.1.0-aarch64-apple-darwin.tar.gz"

@@ -13,7 +13,6 @@ clap = { version = "4", features = ["derive"] }
 mesh-llm-plugin = { git = "https://github.com/Mesh-LLM/mesh-llm.git", rev = "4ae1ace57dbbe28d0c3d10a05ee542328e8e64e7" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 serde_json = "1"
-sha2 = "0.10"
 tokio = { version = "1", features = ["full"] }
 
 [dev-dependencies]

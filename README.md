@@ -1,109 +1,57 @@
 # DwarfStar for Mesh
 
-Run DeepSeek V4 Flash on your Mac and use it through Mesh’s normal API.
-Mesh starts and stops the bundled [DwarfStar](https://github.com/antirez/ds4)
-server for you. No compiler or separate server setup needed.
+Run [DwarfStar (ds4)](https://github.com/antirez/ds4) models through Mesh's
+normal OpenAI-compatible API. The plugin bundles the engine, fetches the model
+you name, and starts and stops the server with Mesh.
 
-**Early access: Apple Silicon, Mesh v0.77.0.** Flash Q2 needs about 81 GiB
-of disk space for weights and a 96 GB or larger Mac for resident inference.
-Leave memory for macOS, context and other applications.
+**Early access: Apple Silicon, Mesh v0.77.0+.** Models are large (DeepSeek V4
+Flash Q2 is ~81 GiB); pick one that fits your Mac's memory.
 
-## 1. Install
+## Setup
 
 ```sh
 mesh-llm plugins install Mesh-LLM/ds4-plugin
 ```
 
-Mesh downloads and installs the plugin and native runtime. No manual extraction.
-The macOS binaries are ad-hoc signed, not Apple-notarized.
-
-For offline installation, download the archive from the
-[release page](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0)
-and use `mesh-llm plugins install --archive <file> --name ds4-plugin --version 0.1.0`.
-
-## 2. Choose weights
-
-Already have compatible DeepSeek V4 Flash Q2 weights? Skip to step 3.
-Otherwise, review the model size/licence and explicitly download them:
-
-```sh
-~/.mesh-llm/plugins/installed/ds4-plugin/ds4-plugin catalog
-~/.mesh-llm/plugins/installed/ds4-plugin/ds4-plugin download --model ds4f-q2 --directory "$HOME/Models/ds4" --accept-download
-```
-
-The download requires curl, resumes interrupted transfers and verifies SHA-256.
-It prints the weight-file path; use that path below, without the `.partial`
-suffix. Installing the plugin does not download weights, and downloading weights
-does not start inference.
-
-## 3. Start with Mesh
-
-`on_demand` starts Mesh without also loading a built-in model at startup
-when no model is explicitly supplied on the Mesh command line. DwarfStar
-still loads its configured weights when the plugin starts.
-
-Add this to `~/.mesh-llm/config.toml`, replacing the weight path. If you already
-have a `[runtime]` section, edit it rather than adding a second one.
+Add to `~/.mesh-llm/config.toml`:
 
 ```toml
 [runtime]
-mode = "on_demand"
+mode = "on_demand"   # don't also load a built-in model next to DwarfStar
 
 [[plugin]]
 name = "ds4-plugin"
-args = ["serve", "--weights", "/absolute/path/to/model.gguf", "--context", "4096"]
+args = ["serve", "--model", "ds4f-q2"]
 ```
 
-```sh
-mesh-llm serve
-```
+Then run `mesh-llm serve`. The first start downloads the model (progress shows
+in the terminal) and later starts reuse it. Once it's loaded, the model appears
+in `curl http://127.0.0.1:9337/v1/models`. Use that id in any OpenAI-compatible
+client.
 
-The model loads when Mesh starts the plugin—not on the first chat request.
-Once ready, it appears in Mesh’s model list:
+## Details
 
-```sh
-curl http://127.0.0.1:9337/v1/models
-curl http://127.0.0.1:9337/v1/chat/completions \
-  -H 'Content-Type: application/json' \
-  -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Hello"}]}'
-```
+- `--model` takes any name upstream's downloader accepts, e.g. `ds4f-q2`,
+  `ds4f-q4`, `ds41f-q2`, `glm53-q2`, `qwen38-q4k`. See
+  [ds4 models](https://github.com/antirez/ds4/blob/main/docs/MODELS.md).
+  Only `ds4f-q2` has been tested through Mesh so far.
+- Already have weights? Use `"--weights", "/path/to/model.gguf"` instead of `--model`.
+- Weights are stored in `~/.mesh-llm/models/ds4` (change with `--model-dir`).
+  They are kept when you stop, uninstall or upgrade the plugin.
+- Context uses ds4-server's default (32768); set `"--context", "65536"` to change.
+- An interrupted download resumes on the next start. Some models (PRO, MXFP4)
+  need the Hugging Face CLI: `python3 -m pip install -U huggingface_hub hf_xet`.
+  `HF_TOKEN` is honoured.
+- Config changes take effect when you restart Mesh. Ctrl+C stops the plugin and
+  the engine.
+- Mesh routes to DwarfStar as one local endpoint; it does not split the model
+  across Mesh nodes.
 
-Use `deepseek-v4-flash` in your OpenAI-compatible client. Chat, streaming and
-tool calls use the normal Mesh API. Upstream also lists a PRO alias; it refers
-to the same loaded model, not a second model.
+## Development
 
-Ctrl+C in the Mesh terminal stops its plugin and backend. Remove the `ds4-plugin`
-plugin entry and restart Mesh to stop loading it on future launches. Changes to
-`--weights` or `--context` also require restarting Mesh. Weights stay in your model
-directory.
-
-## Notes
-
-- Context defaults to 4096 tokens; `--context` accepts 512–32768.
-- This download catalog currently contains Flash Q2 only. The user chooses
-  the weights; Mesh does not automatically select or download them.
-- A hard interruption during download can leave `.ds4-download.lock` in the
-  model directory. Remove it only after confirming no download is running.
-- The engine is MIT-licensed; weights have their own
-  [model licence](https://huggingface.co/antirez/deepseek-v4-gguf).
-
-## Development and testing
-
-Use `just build`, `just verify`, and `just clean`. Default tests use fake
-backends, never model weights. CI additionally installs the plugin into a
-checksum-pinned released Mesh v0.77.0 and checks discovery, chat, tool replay,
-streaming and shutdown cleanup with a mock backend.
-
-For an already running instance with real weights:
-
-```sh
-just acceptance http://127.0.0.1:9337/v1
-```
-
-Real Flash Q2 testing through Mesh on Apple Silicon covered chat, streaming,
-tool replay and shutdown. CI uses a mock backend, not that model.
-
-Maintainers build the plugin and pinned upstream server with
-`just package-macos /path/to/clean/pinned/ds4`. The archive includes Metal
-assets, upstream licence and `RUNTIME.sha256`; users do not compile either
-program. Upstream revision: `0aaea5a238fb41a35106a551e73c8409dfb751ac`.
+`just build`, `just verify`, `just clean`. Default tests use fake backends and a
+fake downloader, never real weights. `just acceptance http://127.0.0.1:9337/v1`
+probes an already running instance. Maintainers package with
+`just package-macos /path/to/clean/pinned/ds4` (upstream revision
+`0aaea5a238fb41a35106a551e73c8409dfb751ac`); the archive includes `ds4-server`,
+Metal assets, upstream `download_model.sh` and its licence.
