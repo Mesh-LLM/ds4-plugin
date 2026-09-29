@@ -1,43 +1,45 @@
-# ds4 — managed DwarfStar plugin for Mesh
+# DwarfStar for Mesh
 
-**Early access for Apple Silicon; not production-certified.**
+Run DeepSeek V4 Flash on your Mac and use it through Mesh’s normal API.
+Mesh starts and stops the bundled [DwarfStar](https://github.com/antirez/ds4)
+server for you. No compiler or separate server setup needed.
 
-Download the [precompiled early-access archive (trial.2)](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.2).
-Use Mesh v0.77.0. The archive includes the runtime, not weights. Standalone native plugin
-following [Flash-MoE](https://github.com/Mesh-LLM/flash-moe). No engine fork,
-Skippy change, or inference-over-plugin-IPC path.
+**Early access: Apple Silicon, Mesh v0.77.0.** Flash Q2 needs about 81 GiB
+of disk space for weights and a 96 GB or larger Mac for resident inference.
+Leave memory for macOS, context and other applications.
 
-## Try the precompiled archive
+## 1. Install
 
-Extract `ds4-v0.1.0-aarch64-apple-darwin.tar.gz`. It contains the plugin,
-`runtime/ds4-server`, Metal shader assets and upstream licence. No compiler is
-needed. Keep this directory; weights should live elsewhere. The bundle is
-ad-hoc signed, not Apple-notarized. Tested on one Apple Silicon machine only.
-
-```sh
-# Review the catalog (does not download):
-./ds4/ds4 catalog
-# Optional: explicitly download ~81 GiB, resumably, then verify SHA-256:
-./ds4/ds4 download --model ds4f-q2 --directory /absolute/models --accept-download
-# Or reuse existing compatible Flash Q2 weights. Starts one session:
-./ds4/ds4 serve --standalone --weights /absolute/models/model.gguf
-```
-
-The last command prints the allocated loopback `/v1` URL and a Ready line.
-Use `deepseek-v4-flash` as the model. Ctrl+C stops its owned server, not other
-instances. Default context is 4096; `--context` accepts 512–32768. Allow ~81 GiB
-for resident weights plus context, OS and other applications. Do not run beside
-another large resident model. No automatic unloading or model download occurs.
-
-## Run through Mesh
-
-With Mesh v0.77.0 (plugin protocol 3), install the trial.2 archive:
+Download [ds4-v0.1.0-aarch64-apple-darwin.tar.gz](https://github.com/Mesh-LLM/ds4-plugin/releases/download/v0.1.0-trial.2/ds4-v0.1.0-aarch64-apple-darwin.tar.gz)
+from the [early-access release](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.2), then run:
 
 ```sh
-mesh-llm plugins install --archive ./ds4-v0.1.0-aarch64-apple-darwin.tar.gz --name ds4 --version 0.1.0
+mesh-llm plugins install --archive ~/Downloads/ds4-v0.1.0-aarch64-apple-darwin.tar.gz --name ds4 --version 0.1.0
 ```
 
-Configure `~/.mesh-llm/config.toml` and launch `mesh-llm serve`:
+Mesh extracts and installs both the plugin and its native runtime. You do not
+need to unpack the archive yourself. The macOS binaries are ad-hoc signed,
+not Apple-notarized.
+
+## 2. Choose weights
+
+Already have compatible DeepSeek V4 Flash Q2 weights? Skip to step 3.
+Otherwise, review the model size/licence and explicitly download them:
+
+```sh
+~/.mesh-llm/plugins/installed/ds4/ds4 catalog
+~/.mesh-llm/plugins/installed/ds4/ds4 download --model ds4f-q2 --directory "$HOME/Models/ds4" --accept-download
+```
+
+The download requires curl, resumes interrupted transfers and verifies SHA-256.
+It prints the weight-file path; use that path below, without the `.partial`
+suffix. Installing the plugin does not download weights, and downloading weights
+does not start inference.
+
+## 3. Start with Mesh
+
+Add this to `~/.mesh-llm/config.toml`, replacing the weight path. If you already
+have a `[runtime]` section, edit it rather than adding a second one.
 
 ```toml
 [runtime]
@@ -45,83 +47,15 @@ mode = "on_demand"
 
 [[plugin]]
 name = "ds4"
-args = ["serve", "--weights", "/absolute/models/model.gguf", "--context", "4096"]
+args = ["serve", "--weights", "/absolute/path/to/model.gguf", "--context", "4096"]
 ```
 
-The plugin finds its adjacent runtime automatically; `--runtime` can override it.
-SDK pinned at `4ae1ace57dbbe28d0c3d10a05ee542328e8e64e7` (v0.77.0).
-Trial.2 passed real archive installation into released Mesh v0.77.0, model
-discovery, chat, a two-turn tool-call replay, streaming content/SSE termination,
-and host shutdown with no surviving owned processes. Private remote routing
-and full agent-harness qualification remain pending. Trial.1 used protocol 2
-and is incompatible with this host; use trial.2 instead.
+```sh
+mesh-llm serve
+```
 
-Initialization rejects incompatible hosts before starting a model. A separate
-Unix watchdog reaps the native backend even when Mesh force-kills the plugin.
-Automated tests cover incompatible initialization, host disconnect and plugin
-SIGKILL while leaving unrelated processes alive. This trial targets Apple
-Silicon/macOS; Windows supervision is not implemented.
-
-**Known discovery limitation:** upstream lists Flash and PRO as compatibility
-aliases for one loaded V4 checkpoint. Use Flash explicitly; do not interpret the
-PRO alias as another loaded model. We have not added a proxy or engine fork to
-hide this. Direct streaming framing passed, but response quality was not asserted.
-
-## Download and provenance
-
-Download requires curl. It never starts inference. Cancelled/failed downloads
-retain `.partial` data. A hard interruption can leave `.ds4-download.lock`;
-remove it only after confirming no download is running. Existing final files
-are verified, never silently overwritten. Keep weights outside the plugin
-installation directory so deletion does not remove them.
-
-Weights use an immutable Hugging Face revision, exact size and SHA-256.
-Bundled upstream runtime: `0aaea5a238fb41a35106a551e73c8409dfb751ac`, built
-without host-native CPU tuning. `RUNTIME.sha256` inventories runtime assets;
-the archive has a checksum sidecar. Engine MIT licence is included separately.
-
-## Early-access scope
-
-Available now: bundled Apple Silicon runtime, explicit resumable Flash Q2 download,
-managed serving, normal Mesh API discovery/chat/streaming/tools, and owned-process
-cleanup. Flash/PRO are upstream aliases for the same loaded checkpoint.
-
-Not yet qualified: other models/platforms, request-triggered loading, concurrent
-agent workloads or a model-picker UI. Download cancellation retains partial data;
-a hard interruption may require the documented stale-lock cleanup. Check available
-disk/RAM yourself before downloading/starting; automatic resource preflight is not
-implemented. These limitations do not require changes to Mesh routing.
-
-Engine licence and model licence are separate. Model source:
-https://huggingface.co/antirez/deepseek-v4-gguf/tree/f71f23d552d664e523b422157b2befbf74040380
-
-## Development
-
-`just build`, `just verify`, `just clean`. Tests do not load weights or start an
-inference server. SDK is pinned to a commit, Cargo dependencies to Cargo.lock.
-
-Maintainers: `just package-macos /path/to/clean/pinned/ds4` builds the composed
-trial archive and cleans upstream build outputs. Users do not run this step.
-
-## Who builds, chooses and starts what?
-
-Maintainers compile the Rust plugin and antirez/ds4's native server from the
-pinned source checkout using `just package-macos`. The archive includes Metal
-assets and the engine licence. Users do not compile either program. The engine
-is a separately packaged executable, not a Mesh source dependency or engine fork.
-
-The user chooses weights, not Mesh. `catalog` currently offers **only Flash Q2**;
-that downloadable catalog is not the same as Mesh's list of ready models.
-Use the `./ds4/ds4` executable from the extracted archive for catalog/download
-commands; it need not be on PATH. Installing the archive does not install weights.
-Downloading weights does not start a server. Configuring `serve --weights` and
-launching Mesh does start the backend, after plugin initialization. The host's
-`on_demand` mode does **not** make this plugin's model load request-triggered.
-The current CLI implements managed serving and standalone serving, not an attach
-subcommand or a model-picker UI. Do not treat an arbitrary upstream-supported
-GGUF as a tested plugin configuration.
-
-Once ready, use the ordinary Mesh OpenAI-compatible API (default port shown):
+The model loads when Mesh starts the plugin—not on the first chat request.
+Once ready, it appears in Mesh’s model list:
 
 ```sh
 curl http://127.0.0.1:9337/v1/models
@@ -130,45 +64,41 @@ curl http://127.0.0.1:9337/v1/chat/completions \
   -d '{"model":"deepseek-v4-flash","messages":[{"role":"user","content":"Hello"}]}'
 ```
 
-There is no special ds4 inference API exposed by the plugin. Plugin IPC is control
-only; Mesh sends inference to the native HTTP backend. Until the alias limitation
-above is fixed, explicitly select Flash rather than treating PRO as available.
+Use `deepseek-v4-flash` in your OpenAI-compatible client. Chat, streaming and
+tool calls use the normal Mesh API. Upstream also lists a PRO alias; it refers
+to the same loaded model, not a second model.
 
-To stop, shut down the Mesh instance you launched (Ctrl+C in its terminal).
-Remove its `[[plugin]]` entry before the next launch if you no longer want the
-backend started. Keep weights outside the installed plugin directory: removing
-plugin files must not remove your model collection. Never stop other instances
-by matching process names.
+Ctrl+C in the Mesh terminal stops its plugin and backend. Remove the `ds4`
+plugin entry to stop loading it on future launches. Weights stay in your model
+directory.
 
-## Repeatable acceptance owned by this repository
+## Notes
 
-`just verify` runs the full Rust package suite and model-free Python tests of the
-API probe. Fake processes test owned-child cleanup; fake HTTP responses test
-chat/tool-history replay, SSE termination and rejection of false discovery aliases.
-These tests do not prove a real host/runtime integration or model quality.
+- Context defaults to 4096 tokens; `--context` accepts 512–32768.
+- This download catalog currently contains Flash Q2 only. The user chooses
+  the weights; Mesh does not automatically select or download them.
+- A hard interruption during download can leave `.ds4-download.lock` in the
+  model directory. Remove it only after confirming no download is running.
+- The engine is MIT-licensed; weights have their own
+  [model licence](https://huggingface.co/antirez/deepseek-v4-gguf).
 
-Explicitly start your isolated test instance with existing weights, then run:
+## Development and testing
+
+Use `just build`, `just verify`, and `just clean`. Default tests use fake
+backends, never model weights. CI additionally installs the plugin into a
+checksum-pinned released Mesh v0.77.0 and checks discovery, chat, tool replay,
+streaming and shutdown cleanup with a mock backend.
+
+For an already running instance with real weights:
 
 ```sh
-just acceptance http://127.0.0.1:19447/v1
-# Optional diagnostic only; upstream aliases make this fail:
-python3 scripts/acceptance.py --base-url http://127.0.0.1:19447/v1 --strict-discovery
+just acceptance http://127.0.0.1:9337/v1
 ```
 
-The probe performs real inference but never starts/stops services, downloads
-weights or changes configuration. It checks model presence, chat content, forced
-tool-call arguments/IDs/finish reason, full assistant-history replay and streamed
-content/finish/termination. The optional strict diagnostic fails against the known
-Flash/PRO alias response. This is not a release gate: aliases do not prevent
-normal Mesh discovery or inference with the selected model ID.
-It is a scripted contract test, not a full coding-agent qualification.
+Trial.2 was tested with real Flash Q2 weights through Mesh on Apple Silicon,
+including chat, streaming, tool replay and shutdown. CI does not load that model.
 
-Record plugin commit, Mesh version, runtime revision, weight identity and context
-with real results. Run against direct ds4 and local Mesh URLs to distinguish
-backend failures from host integration failures. CI also installs the plugin into a checksum-pinned released Mesh v0.77.0 host
-with a fake backend and executes this API probe, including shutdown cleanup.
-Run that same integration locally with `python3 scripts/mesh_smoke.py --mesh
-/path/to/mesh-llm --plugin target/debug/ds4` after `just build`.
-See `ci/README.md` for the trust/dependency contract. This is real host integration
-with synthetic responses, not real-model qualification. Download fault injection
-and broader failure/recovery acceptance remain follow-up coverage.
+Maintainers build the plugin and pinned upstream server with
+`just package-macos /path/to/clean/pinned/ds4`. The archive includes Metal
+assets, upstream licence and `RUNTIME.sha256`; users do not compile either
+program. Upstream revision: `0aaea5a238fb41a35106a551e73c8409dfb751ac`.
