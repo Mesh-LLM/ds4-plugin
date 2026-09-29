@@ -30,7 +30,7 @@ codesign --verify --strict "$stage/ds4/runtime/ds4-server"
 sh "$stage/ds4/runtime/download_model.sh" --help >/dev/null
 "$stage/ds4/runtime/ds4-server" --help >/dev/null
 (cd "$stage/ds4" && find runtime -type f -exec shasum -a 256 {} \; > RUNTIME.sha256)
-archive="$root/dist/ds4-v0.1.0-aarch64-apple-darwin.tar.gz"
+archive="$root/dist/ds4-v0.2.0-aarch64-apple-darwin.tar.gz"
 tar -czf "$archive" -C "$stage" ds4
 (cd dist && shasum -a 256 "$(basename "$archive")" > "$(basename "$archive").sha256")
 printf 'Release archive: %s\n' "$archive"
