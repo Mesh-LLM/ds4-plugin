@@ -11,14 +11,14 @@ Leave memory for macOS, context and other applications.
 ## 1. Install
 
 ```sh
-mesh-llm plugins install Mesh-LLM/ds4-plugin@v0.1.0-trial.3
+mesh-llm plugins install Mesh-LLM/ds4-plugin
 ```
 
 Mesh downloads and installs the plugin and native runtime. No manual extraction.
 The macOS binaries are ad-hoc signed, not Apple-notarized.
 
 For offline installation, download the archive from the
-[release page](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.3)
+[release page](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0)
 and use `mesh-llm plugins install --archive <file> --name ds4-plugin --version 0.1.0`.
 
 ## 2. Choose weights
@@ -95,8 +95,8 @@ For an already running instance with real weights:
 just acceptance http://127.0.0.1:9337/v1
 ```
 
-Trial.2 was tested with real Flash Q2 weights through Mesh on Apple Silicon,
-including chat, streaming, tool replay and shutdown. CI does not load that model.
+Real Flash Q2 testing through Mesh on Apple Silicon covered chat, streaming,
+tool replay and shutdown. CI uses a mock backend, not that model.
 
 Maintainers build the plugin and pinned upstream server with
 `just package-macos /path/to/clean/pinned/ds4`. The archive includes Metal
