@@ -10,7 +10,7 @@ release**, not `main`. Merging does not ship anything; a tag does.
    ```sh
    git tag v0.3.0 <merge-sha> && git push origin v0.3.0
    ```
-   `.github/workflows/release.yml` checks the tag matches the version, builds
+   `.github/workflows/release.yml` (also run as a no-publish dry run on PRs that touch packaging) checks the tag matches the version, builds
    the plugin and the pinned upstream `ds4-server` on macOS, and publishes the
    release with the archive.
 3. Check: `mesh-llm plugins install Mesh-LLM/ds4-plugin` in a clean `HOME`

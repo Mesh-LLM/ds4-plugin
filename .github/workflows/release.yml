@@ -1,9 +1,13 @@
 name: Release
 # Push a tag vX.Y.Z (matching Cargo.toml/plugin.toml) to build and publish the
 # archive that `mesh-llm plugins install Mesh-LLM/ds4-plugin` downloads.
+# PRs touching packaging run the same build as a dry run (no publish).
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths: ['.github/workflows/release.yml', 'scripts/package-macos.sh', 'scripts/github_package.py', 'Cargo.toml', 'plugin.toml']
+  workflow_dispatch:
 permissions:
   contents: write
 jobs:
@@ -15,6 +19,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Check tag matches version
+        if: startsWith(github.ref, 'refs/tags/')
         shell: bash
         run: |
           set -euo pipefail
@@ -30,7 +35,21 @@ jobs:
           git -C "$RUNNER_TEMP/ds4" checkout --quiet "$rev"
       - name: Package
         run: bash scripts/package-macos.sh "$RUNNER_TEMP/ds4"
+      - name: Smoke the packaged archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          t=$(mktemp -d); tar xzf dist/ds4-plugin-aarch64-apple-darwin.tar.gz -C "$t"
+          "$t/ds4-plugin/ds4-plugin" serve --help >/dev/null
+          test -x "$t/ds4-plugin/runtime/ds4-server"
+          test -f "$t/ds4-plugin/runtime/download_model.sh"
+          grep -q 'command = "ds4-plugin"' "$t/ds4-plugin/plugin.toml"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: ds4-plugin-archive
+          path: dist/ds4-plugin-aarch64-apple-darwin.tar.gz*
       - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
