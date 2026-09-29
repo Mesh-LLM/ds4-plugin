@@ -1,19 +1,83 @@
 use anyhow::{Context, Result, bail, ensure};
 use mesh_llm_plugin::{PluginMetadata, PluginRuntime, PluginStartupPolicy, plugin_server_info};
-use std::{path::PathBuf, process::Stdio, time::Duration};
+use std::{os::fd::AsFd, path::PathBuf, process::Stdio, time::Duration};
 use tokio::process::{Child, Command};
 
+/// `context == 0` means "use ds4-server's own default" (32768 at the pinned revision).
 fn arguments(weights: &std::path::Path, context: u32, port: u16) -> Vec<String> {
-    vec![
-        "-m".into(),
-        weights.to_string_lossy().into_owned(),
-        "--ctx".into(),
-        context.to_string(),
+    let mut args = vec!["-m".into(), weights.to_string_lossy().into_owned()];
+    if context > 0 {
+        args.extend(["--ctx".into(), context.to_string()]);
+    }
+    args.extend([
         "--host".into(),
         "127.0.0.1".into(),
         "--port".into(),
         port.to_string(),
-    ]
+    ]);
+    args
+}
+
+/// What to serve: an explicit weight file, or a ds4 model name fetched by the
+/// bundled upstream `download_model.sh` when missing.
+pub enum Weights {
+    Path(PathBuf),
+    Model(String),
+}
+
+/// Default weight directory: outside the plugin install dir, so uninstall or
+/// upgrade never deletes downloaded weights.
+fn default_model_dir() -> Result<PathBuf> {
+    let home = std::env::var_os("HOME").context("HOME is not set")?;
+    Ok(PathBuf::from(home).join(".mesh-llm/models/ds4"))
+}
+
+/// Runs upstream's downloader (resumes, verifies, and links `ds4flash.gguf` in
+/// the runtime dir) and returns the resolved weight file. Cheap when present.
+async fn fetch_model(
+    runtime: &std::path::Path,
+    model: &str,
+    dir: &std::path::Path,
+) -> Result<PathBuf> {
+    let script = runtime.join("download_model.sh");
+    ensure!(
+        script.is_file(),
+        "runtime is missing download_model.sh; reinstall the plugin"
+    );
+    std::fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
+    eprintln!(
+        "ds4: ensuring model {model} in {} (downloads if missing; progress below)",
+        dir.display()
+    );
+    let status = Command::new("/bin/sh")
+        .arg(&script)
+        .arg(model)
+        .env("DS4_GGUF_DIR", dir)
+        .current_dir(runtime)
+        .stdin(Stdio::null())
+        // Keep plugin stdout clean; everything goes to the Mesh terminal via stderr.
+        .stdout(std::process::Stdio::from(
+            std::io::stderr().as_fd().try_clone_to_owned()?,
+        ))
+        .stderr(Stdio::inherit())
+        .kill_on_drop(true)
+        .status()
+        .await
+        .context("run bundled download_model.sh")?;
+    ensure!(
+        status.success(),
+        "ds4: fetching {model} failed ({status}); fix the message above and restart Mesh (downloads resume)"
+    );
+    let link = runtime.join("ds4flash.gguf");
+    let weights = link
+        .canonicalize()
+        .with_context(|| format!("{model} is not a servable main model (no ds4flash.gguf link)"))?;
+    ensure!(
+        weights.starts_with(dir.canonicalize()?),
+        "{model} did not resolve into {}",
+        dir.display()
+    );
+    Ok(weights)
 }
 
 async fn wait_ready(child: &mut Child, url: &str) -> Result<()> {
@@ -27,19 +91,15 @@ async fn wait_ready(child: &mut Child, url: &str) -> Result<()> {
         if let Ok(response) = client.get(format!("{url}/models")).send().await
             && response.status().is_success()
             && let Ok(body) = response.json::<serde_json::Value>().await
-            && body["data"].as_array().is_some_and(|items| {
-                items
-                    .iter()
-                    .any(|m| m["id"].as_str() == Some("deepseek-v4-flash"))
-            })
+            && body["data"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty())
         {
             return Ok(());
         }
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
-    bail!(
-        "ds4-server did not expose DeepSeek V4 Flash within startup deadline; inspect server stderr"
-    )
+    bail!("ds4-server did not list a model within the startup deadline; inspect server stderr")
 }
 
 fn plugin(name: &str, url: String) -> mesh_llm_plugin::SimplePlugin {
@@ -51,7 +111,13 @@ fn plugin(name: &str, url: String) -> mesh_llm_plugin::SimplePlugin {
     }
 }
 
-pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: bool) -> Result<()> {
+pub async fn run(
+    runtime: PathBuf,
+    weights: Weights,
+    model_dir: Option<PathBuf>,
+    context: u32,
+    standalone: bool,
+) -> Result<()> {
     ensure!(
         standalone || std::env::var_os("MESH_LLM_PLUGIN_ENDPOINT").is_some(),
         "serve must be launched by Mesh as a plugin; no server started"
@@ -59,10 +125,20 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: b
     let runtime = runtime
         .canonicalize()
         .context("runtime directory missing; provision pinned ds4 runtime first")?;
-    let weights = weights
-        .canonicalize()
-        .context("weights missing; use explicit download or supply existing weights")?;
-    ensure!(weights.is_file(), "weights must be a file");
+    let weights = match weights {
+        Weights::Path(path) => {
+            let path = path
+                .canonicalize()
+                .with_context(|| format!("weights not found: {}", path.display()))?;
+            ensure!(path.is_file(), "weights must be a file");
+            Weights::Path(path)
+        }
+        model => model,
+    };
+    let model_dir = match model_dir {
+        Some(dir) => dir,
+        None => default_model_dir()?,
+    };
     let executable = runtime.join("ds4-server");
     ensure!(
         executable.is_file(),
@@ -108,41 +184,65 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: b
             _ = tokio::time::sleep(Duration::from_secs(15)) => bail!("Mesh initialization timed out; no server started"),
         }
     }
-    let mut child = Command::new(std::env::current_exe()?)
-        .arg("watch-backend")
-        .arg(&runtime)
-        .arg(&weights)
-        .arg(context.to_string())
-        .arg(port.to_string())
-        .arg(std::process::id().to_string())
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
-        .context("start owned ds4-server")?;
-    eprintln!("Starting DwarfStar at {url}; one session, context={context}");
+    // Acquisition runs concurrently with the plugin connection, so Mesh health
+    // checks keep answering Ok while a large download or verification runs; the
+    // endpoint simply stays unready until the backend lists a model.
+    let child_slot: std::sync::Arc<tokio::sync::Mutex<Option<Child>>> = Default::default();
+    let serve = {
+        let child_slot = child_slot.clone();
+        let url = url.clone();
+        async move {
+            let weights = match weights {
+                Weights::Path(path) => path,
+                Weights::Model(model) => fetch_model(&runtime, &model, &model_dir).await?,
+            };
+            let child = Command::new(std::env::current_exe()?)
+                .arg("watch-backend")
+                .arg(&runtime)
+                .arg(&weights)
+                .arg(context.to_string())
+                .arg(port.to_string())
+                .arg(std::process::id().to_string())
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::inherit())
+                .kill_on_drop(true)
+                .spawn()
+                .context("start owned ds4-server")?;
+            let ctx = if context > 0 {
+                context.to_string()
+            } else {
+                "server default".into()
+            };
+            eprintln!(
+                "ds4: starting DwarfStar with {} at {url}; context={ctx}",
+                weights.display()
+            );
+            let mut guard = child_slot.lock().await;
+            let child = guard.insert(child);
+            wait_ready(child, &url).await?;
+            eprintln!("ds4: ready at {url}");
+            let status = child.wait().await?;
+            bail!("owned ds4-server exited: {status}")
+        }
+    };
     let result = if standalone {
         tokio::select! {
-            result = async {
-                wait_ready(&mut child, &url).await?;
-                eprintln!("Ready: {url} (upstream Flash/PRO IDs are aliases, not two loaded models)");
-                bail!("ds4-server exited: {}", child.wait().await?)
-            } => result,
+            result = serve => result,
             _ = shutdown_signal() => Ok(()),
         }
     } else {
         tokio::select! {
             result = &mut connection => result,
-            result = async {
-                wait_ready(&mut child, &url).await?;
-                bail!("owned ds4-server exited: {}", child.wait().await?)
-            } => result,
+            result = serve => result,
             _ = shutdown_signal() => Ok(()),
         }
     };
-    // Only the Child handle we created is ever terminated. No process-name matching.
-    if child.try_wait()?.is_none() {
+    // Dropping `serve` cancelled any in-flight download (kill_on_drop; upstream
+    // resumes the partial file next start). Only our own child is terminated.
+    if let Some(mut child) = child_slot.lock().await.take()
+        && child.try_wait()?.is_none()
+    {
         if let Some(pid) = child.id() {
             // SAFETY: signaling only the supervisor child we own.
             unsafe {
@@ -231,6 +331,9 @@ mod tests {
                 "12345"
             ]
         );
+        // No --ctx at all by default: ds4-server picks its own (32768).
+        let args = arguments(std::path::Path::new("/m.gguf"), 0, 1);
+        assert!(!args.iter().any(|a| a == "--ctx"));
     }
 
     #[test]
