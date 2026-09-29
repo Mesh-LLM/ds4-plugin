@@ -32,6 +32,27 @@ fn default_model_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(home).join(".mesh-llm/models/ds4"))
 }
 
+/// `$0`=script `$1`=model `$2`=plugin pid. Exits with the downloader's status,
+/// or SIGTERMs its own process group once the plugin is gone.
+const WATCHED_DOWNLOAD: &str = r#"/bin/sh "$0" "$1" & d=$!
+while kill -0 "$2" 2>/dev/null; do
+  if ! kill -0 "$d" 2>/dev/null; then wait "$d"; exit $?; fi
+  sleep 1
+done
+kill -TERM 0"#;
+
+/// SIGTERMs a whole process group when dropped (fetch cancelled or plugin exiting).
+struct KillGroupOnDrop(u32);
+
+impl Drop for KillGroupOnDrop {
+    fn drop(&mut self) {
+        // SAFETY: signals only the process group we created for the downloader.
+        unsafe {
+            libc::kill(-(self.0 as i32), libc::SIGTERM);
+        }
+    }
+}
+
 /// Runs upstream's downloader (resumes, verifies, and links `ds4flash.gguf` in
 /// the runtime dir) and returns the resolved weight file. Cheap when present.
 async fn fetch_model(
@@ -49,9 +70,16 @@ async fn fetch_model(
         "ds4: ensuring model {model} in {} (downloads if missing; progress below)",
         dir.display()
     );
-    let status = Command::new("/bin/sh")
+    // Own process group so cancelling the fetch stops curl/hf too, not just sh
+    // (kill_on_drop alone signals only sh and orphans the transfer).
+    // The wrapper polls the plugin pid, so the transfer also stops if Mesh
+    // kills the plugin outright (no Drop runs then).
+    let mut child = Command::new("/bin/sh")
+        .arg("-c")
+        .arg(WATCHED_DOWNLOAD)
         .arg(&script)
         .arg(model)
+        .arg(std::process::id().to_string())
         .env("DS4_GGUF_DIR", dir)
         .current_dir(runtime)
         .stdin(Stdio::null())
@@ -60,10 +88,12 @@ async fn fetch_model(
             std::io::stderr().as_fd().try_clone_to_owned()?,
         ))
         .stderr(Stdio::inherit())
+        .process_group(0)
         .kill_on_drop(true)
-        .status()
-        .await
+        .spawn()
         .context("run bundled download_model.sh")?;
+    let _group = child.id().map(KillGroupOnDrop);
+    let status = child.wait().await?;
     ensure!(
         status.success(),
         "ds4: fetching {model} failed ({status}); fix the message above and restart Mesh (downloads resume)"
