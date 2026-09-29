@@ -38,6 +38,10 @@ does not start inference.
 
 ## 3. Start with Mesh
 
+`on_demand` starts Mesh without also loading a built-in model at startup
+when no model is explicitly supplied on the Mesh command line. DwarfStar
+still loads its configured weights when the plugin starts.
+
 Add this to `~/.mesh-llm/config.toml`, replacing the weight path. If you already
 have a `[runtime]` section, edit it rather than adding a second one.
 
@@ -69,7 +73,8 @@ tool calls use the normal Mesh API. Upstream also lists a PRO alias; it refers
 to the same loaded model, not a second model.
 
 Ctrl+C in the Mesh terminal stops its plugin and backend. Remove the `ds4-plugin`
-plugin entry to stop loading it on future launches. Weights stay in your model
+plugin entry and restart Mesh to stop loading it on future launches. Changes to
+`--weights` or `--context` also require restarting Mesh. Weights stay in your model
 directory.
 
 ## Notes
