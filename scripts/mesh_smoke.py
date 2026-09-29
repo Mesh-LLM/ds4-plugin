@@ -13,6 +13,7 @@ import tarfile
 import tempfile
 import time
 from acceptance import check, request
+from github_package import compose
 
 
 def port():
@@ -47,17 +48,20 @@ def main():
         archive = root / 'plugin.tar.gz'
         with tarfile.open(archive, 'w:gz') as output:
             output.add(package, arcname='ds4')
+        github_archive = root / 'ds4-plugin-test.tar.gz'
+        compose(archive, github_archive)
+        archive = github_archive
         env = {key: value for key, value in os.environ.items()
                if not key.startswith(('MESH_', 'BUZZ_', 'XDG_'))}
         env.update(HOME=str(home), XDG_CONFIG_HOME=str(home / '.config'),
                    XDG_CACHE_HOME=str(home / '.cache'), PYTHONDONTWRITEBYTECODE='1',
                    MESH_LLM_OWNER_PASSPHRASE='isolated-test-only')
         subprocess.run([str(mesh), '--log-format', 'json', 'plugins', 'install',
-                        '--archive', str(archive), '--name', 'ds4', '--version', '0.1.0'],
+                        '--archive', str(archive), '--name', 'ds4-plugin', '--version', '0.1.0'],
                        env=env, check=True, timeout=60)
         config = home / '.mesh-llm' / 'config.toml'
         config.parent.mkdir(exist_ok=True)
-        config.write_text('[runtime]\nmode = "on_demand"\n\n[[plugin]]\nname = "ds4"\n'
+        config.write_text('[runtime]\nmode = "on_demand"\n\n[[plugin]]\nname = "ds4-plugin"\n'
                           'args = ["serve", "--weights", ' + json.dumps(str(weights)) + ']\n')
         api, console = port(), port()
         base = f'http://127.0.0.1:{api}/v1'

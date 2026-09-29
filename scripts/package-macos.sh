@@ -31,3 +31,5 @@ archive="$root/dist/ds4-v0.1.0-aarch64-apple-darwin.tar.gz"
 tar -czf "$archive" -C "$stage" ds4
 (cd dist && shasum -a 256 "$(basename "$archive")" > "$(basename "$archive").sha256")
 printf 'Trial archive: %s\n' "$archive"
+
+python3 scripts/github_package.py "$archive" "$root/dist/ds4-plugin-aarch64-apple-darwin.tar.gz"

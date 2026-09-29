@@ -42,10 +42,10 @@ async fn wait_ready(child: &mut Child, url: &str) -> Result<()> {
     )
 }
 
-fn plugin(url: String) -> mesh_llm_plugin::SimplePlugin {
+fn plugin(name: &str, url: String) -> mesh_llm_plugin::SimplePlugin {
     mesh_llm_plugin::plugin! {
-        metadata: PluginMetadata::new("ds4", env!("CARGO_PKG_VERSION"), plugin_server_info(
-            "ds4", env!("CARGO_PKG_VERSION"), "DwarfStar", "Managed local DwarfStar inference", None::<String>)),
+        metadata: PluginMetadata::new(name, env!("CARGO_PKG_VERSION"), plugin_server_info(
+            name, env!("CARGO_PKG_VERSION"), "DwarfStar", "Managed local DwarfStar inference", None::<String>)),
         startup_policy: PluginStartupPolicy::Any,
         inference: [mesh_llm_plugin::inference::provider("ds4", url)],
     }
@@ -75,7 +75,13 @@ pub async fn run(runtime: PathBuf, weights: PathBuf, context: u32, standalone: b
     // Do not allocate a model process until a compatible host has initialized us.
     let initialized = std::sync::Arc::new(tokio::sync::Notify::new());
     let ready = initialized.clone();
-    let plugin = plugin(url.clone())
+    let executable = std::env::current_exe()?;
+    let name = if executable.file_stem().and_then(|s| s.to_str()) == Some("ds4-plugin") {
+        "ds4-plugin"
+    } else {
+        "ds4"
+    };
+    let plugin = plugin(name, url.clone())
         .on_initialize(|request, _| {
             Box::pin(async move {
                 if request.host_protocol_version != mesh_llm_plugin::PROTOCOL_VERSION {
@@ -229,7 +235,7 @@ mod tests {
 
     #[test]
     fn manifest_uses_existing_managed_provider_contract() {
-        let p = plugin("http://127.0.0.1:12345/v1".into());
+        let p = plugin("ds4-plugin", "http://127.0.0.1:12345/v1".into());
         let manifest = p.manifest().unwrap();
         assert_eq!(manifest.endpoints.len(), 1);
         let endpoint = &manifest.endpoints[0];

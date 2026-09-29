@@ -10,16 +10,16 @@ Leave memory for macOS, context and other applications.
 
 ## 1. Install
 
-Download [ds4-v0.1.0-aarch64-apple-darwin.tar.gz](https://github.com/Mesh-LLM/ds4-plugin/releases/download/v0.1.0-trial.2/ds4-v0.1.0-aarch64-apple-darwin.tar.gz)
-from the [early-access release](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.2), then run:
-
 ```sh
-mesh-llm plugins install --archive ~/Downloads/ds4-v0.1.0-aarch64-apple-darwin.tar.gz --name ds4 --version 0.1.0
+mesh-llm plugins install Mesh-LLM/ds4-plugin@v0.1.0-trial.3
 ```
 
-Mesh extracts and installs both the plugin and its native runtime. You do not
-need to unpack the archive yourself. The macOS binaries are ad-hoc signed,
-not Apple-notarized.
+Mesh downloads and installs the plugin and native runtime. No manual extraction.
+The macOS binaries are ad-hoc signed, not Apple-notarized.
+
+For offline installation, download the archive from the
+[release page](https://github.com/Mesh-LLM/ds4-plugin/releases/tag/v0.1.0-trial.3)
+and use `mesh-llm plugins install --archive <file> --name ds4-plugin --version 0.1.0`.
 
 ## 2. Choose weights
 
@@ -27,8 +27,8 @@ Already have compatible DeepSeek V4 Flash Q2 weights? Skip to step 3.
 Otherwise, review the model size/licence and explicitly download them:
 
 ```sh
-~/.mesh-llm/plugins/installed/ds4/ds4 catalog
-~/.mesh-llm/plugins/installed/ds4/ds4 download --model ds4f-q2 --directory "$HOME/Models/ds4" --accept-download
+~/.mesh-llm/plugins/installed/ds4-plugin/ds4-plugin catalog
+~/.mesh-llm/plugins/installed/ds4-plugin/ds4-plugin download --model ds4f-q2 --directory "$HOME/Models/ds4" --accept-download
 ```
 
 The download requires curl, resumes interrupted transfers and verifies SHA-256.
@@ -46,7 +46,7 @@ have a `[runtime]` section, edit it rather than adding a second one.
 mode = "on_demand"
 
 [[plugin]]
-name = "ds4"
+name = "ds4-plugin"
 args = ["serve", "--weights", "/absolute/path/to/model.gguf", "--context", "4096"]
 ```
 
@@ -68,7 +68,7 @@ Use `deepseek-v4-flash` in your OpenAI-compatible client. Chat, streaming and
 tool calls use the normal Mesh API. Upstream also lists a PRO alias; it refers
 to the same loaded model, not a second model.
 
-Ctrl+C in the Mesh terminal stops its plugin and backend. Remove the `ds4`
+Ctrl+C in the Mesh terminal stops its plugin and backend. Remove the `ds4-plugin`
 plugin entry to stop loading it on future launches. Weights stay in your model
 directory.
 
