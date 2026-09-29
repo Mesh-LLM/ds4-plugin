@@ -1,0 +1,34 @@
+name: Plugin and released Mesh
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: verify-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Verify complete package
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo fmt --all --check
+          cargo check --locked --all-targets
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s scripts -p 'test_*.py'
+      - name: Fetch checksum-pinned released test host
+        run: python3 scripts/fetch_test_host.py
+      - name: Install plugin and test through released Mesh
+        run: python3 scripts/mesh_smoke.py --mesh target/test-host/mesh-bundle/mesh-llm --plugin target/debug/ds4
+      - name: Clean build and test dependency
+        if: always()
+        run: cargo clean
